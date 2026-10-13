@@ -11,6 +11,7 @@ const registerMeHandler = require('./handlers/meHandler');
 const registerChannelHandler = require('./handlers/channelHandler');
 const registerPostHandler = require('./handlers/postHandler');
 const registerPlanHandler = require('./handlers/planHandler');
+const registerAdminHandler = require('./handlers/adminHandler');
 
 const { startScheduler } = require('./scheduler');
 const { startCleanup } = require('./scheduler/cleanup');
@@ -45,28 +46,32 @@ bot.start((ctx) => {
   );
 });
 
-bot.help((ctx) => {
-  return ctx.reply(
+bot.help(async (ctx) => {
+  let text =
     `📖 *Comandos disponibles:*\n\n` +
-      `/start - Iniciar\n` +
-      `/me - Ver tu cuenta y plan\n` +
-      `/addchannel - Añadir un canal o grupo\n` +
-      `/channels - Ver tus canales\n` +
-      `/help - Esta ayuda`, +
-      `/newpost - Programar publicación\n`, +
-      `/posts - Ver publicaciones\n`, +
-      `/pause <ID> - Pausar\n`, +
-      `/resume <ID> - Reactivar\n`, +
-      `/delpost <ID> - Eliminar\n`, +
-      `/plans - Ver planes y comprar\n`, +
-    { parse_mode: 'Markdown' }
-  );
+    `/start - Iniciar\n` +
+    `/me - Ver tu cuenta y plan\n` +
+    `/addchannel - Añadir un canal o grupo\n` +
+    `/channels - Ver tus canales\n` +
+    `/newpost - Programar publicación\n` +
+    `/posts - Ver publicaciones\n` +
+    `/plans - Ver planes y comprar\n` +
+    `/cancel - Cancelar operación\n` +
+    `/help - Esta ayuda`;
+
+  const { ADMIN_IDS } = require('./config/env');
+  if (ADMIN_IDS.includes(ctx.from.id)) {
+    text += `\n\n🛠 *Admin:*\n/admin - Panel de administración`;
+  }
+
+  return ctx.reply(text, { parse_mode: 'Markdown' });
 });
 
 registerMeHandler(bot);
 registerChannelHandler(bot);
 registerPostHandler(bot);
 registerPlanHandler(bot);
+registerAdminHandler(bot);
 
 startScheduler(bot);
 startCleanup();
