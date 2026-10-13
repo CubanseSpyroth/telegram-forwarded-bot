@@ -55,6 +55,19 @@ function runMigrations() {
       sent_at       DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS payments (
+      id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id                  INTEGER NOT NULL,
+      telegram_payment_charge_id TEXT NOT NULL UNIQUE,
+      amount                   INTEGER NOT NULL,   -- en Stars
+      plan                     TEXT NOT NULL,
+      duration_days            INTEGER NOT NULL,
+      created_at               DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
+
     CREATE INDEX IF NOT EXISTS idx_schedules_active ON schedules(is_active, next_run);
     CREATE INDEX IF NOT EXISTS idx_channels_user ON channels(user_id);
     CREATE INDEX IF NOT EXISTS idx_targets_schedule ON schedule_targets(schedule_id);

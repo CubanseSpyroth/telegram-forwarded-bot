@@ -10,6 +10,7 @@ const userMiddleware = require('./middlewares/userMiddleware');
 const registerMeHandler = require('./handlers/meHandler');
 const registerChannelHandler = require('./handlers/channelHandler');
 const registerPostHandler = require('./handlers/postHandler');
+const registerPlanHandler = require('./handlers/planHandler');
 
 const { startScheduler } = require('./scheduler');
 const { startCleanup } = require('./scheduler/cleanup');
@@ -57,6 +58,7 @@ bot.help((ctx) => {
       `/pause <ID> - Pausar\n`, +
       `/resume <ID> - Reactivar\n`, +
       `/delpost <ID> - Eliminar\n`, +
+      `/plans - Ver planes y comprar\n`, +
     { parse_mode: 'Markdown' }
   );
 });
@@ -64,6 +66,7 @@ bot.help((ctx) => {
 registerMeHandler(bot);
 registerChannelHandler(bot);
 registerPostHandler(bot);
+registerPlanHandler(bot);
 
 startScheduler(bot);
 startCleanup();

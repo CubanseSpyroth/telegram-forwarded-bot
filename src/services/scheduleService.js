@@ -5,7 +5,7 @@ const { calculateNextRun } = require('../utils/dateHelpers');
 
 module.exports = {
   create(user, data) {
-    const plan = planService.getPlan(user.plan);
+    const plan = planService.getEffectivePlan(user);
 
     // 1. Límite de programaciones
     const current = scheduleModel.countByUser(user.id);

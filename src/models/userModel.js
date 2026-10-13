@@ -18,8 +18,8 @@ module.exports = {
   },
 
   updatePlan(userId, plan, expiresAt = null) {
-    db.prepare(`
-      UPDATE users SET plan = ?, plan_expires = ? WHERE id = ?
+  db.prepare(`
+    UPDATE users SET plan = ?, plan_expires = ? WHERE id = ?
     `).run(plan, expiresAt, userId);
     return this.findById(userId);
   },
