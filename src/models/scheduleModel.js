@@ -94,4 +94,10 @@ module.exports = {
   updateContent(id, content) {
     return db.prepare('UPDATE schedules SET content = ? WHERE id = ?').run(content, id);
   },
+
+  removeTarget(scheduleId, chatId) {
+    return db.prepare(
+      'DELETE FROM schedule_targets WHERE schedule_id = ? AND chat_id = ?'
+    ).run(scheduleId, chatId);
+  },
 };

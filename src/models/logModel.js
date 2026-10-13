@@ -16,4 +16,15 @@ module.exports = {
       LIMIT ?
     `).all(scheduleId, limit);
   },
+
+  deleteOlderThan(days) {
+  return db.prepare(`
+    DELETE FROM delivery_logs
+    WHERE sent_at < datetime('now', ?)
+    `).run(`-${days} days`);
+  },
+
+  count() {
+    return db.prepare('SELECT COUNT(*) AS total FROM delivery_logs').get().total;
+  },  
 };

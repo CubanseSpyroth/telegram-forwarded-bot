@@ -12,6 +12,7 @@ const registerChannelHandler = require('./handlers/channelHandler');
 const registerPostHandler = require('./handlers/postHandler');
 
 const { startScheduler } = require('./scheduler');
+const { startCleanup } = require('./scheduler/cleanup');
 
 console.log('🚀 Iniciando bot...');
 runMigrations();
@@ -51,11 +52,11 @@ bot.help((ctx) => {
       `/addchannel - Añadir un canal o grupo\n` +
       `/channels - Ver tus canales\n` +
       `/help - Esta ayuda`, +
-      `/newpost - Programar publicación\n` +
-      `/posts - Ver publicaciones\n` +
-      `/pause <ID> - Pausar\n` +
-      `/resume <ID> - Reactivar\n` +
-      `/delpost <ID> - Eliminar\n` +
+      `/newpost - Programar publicación\n`, +
+      `/posts - Ver publicaciones\n`, +
+      `/pause <ID> - Pausar\n`, +
+      `/resume <ID> - Reactivar\n`, +
+      `/delpost <ID> - Eliminar\n`, +
     { parse_mode: 'Markdown' }
   );
 });
@@ -65,6 +66,7 @@ registerChannelHandler(bot);
 registerPostHandler(bot);
 
 startScheduler(bot);
+startCleanup();
 
 // --- Manejo de errores ---
 bot.catch((err, ctx) => {
