@@ -48,6 +48,10 @@ module.exports = {
       day_of_month: data.day_of_month,
       run_date: data.run_date,
       next_run: nextRun.toISOString(),
+      media_type: data.media_type ?? null,
+      media_file_id: data.media_file_id ?? null,
+      parse_mode: data.parse_mode ?? null,
+      buttons_json: data.buttons_json ?? null,
     });
 
     for (const chatId of data.targets) {

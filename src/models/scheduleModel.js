@@ -3,23 +3,27 @@ const db = require('../database/connection');
 module.exports = {
   create(schedule) {
     const stmt = db.prepare(`
-      INSERT INTO schedules
-        (user_id, content, schedule_type, hour, minute, weekday, day_of_month,
-         run_date, next_run, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-    `);
-    const result = stmt.run(
-      schedule.user_id,
-      schedule.content,
-      schedule.schedule_type,
-      schedule.hour,
-      schedule.minute,
-      schedule.weekday ?? null,
-      schedule.day_of_month ?? null,
-      schedule.run_date ?? null,
-      schedule.next_run
-    );
-    return result.lastInsertRowid;
+    INSERT INTO schedules
+      (user_id, content, schedule_type, hour, minute, weekday, day_of_month,
+       run_date, next_run, is_active, media_type, media_file_id, parse_mode, buttons_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+  `);
+
+  return stmt.run(
+    schedule.user_id,
+    schedule.content,
+    schedule.schedule_type,
+    schedule.hour,
+    schedule.minute,
+    schedule.weekday ?? null,
+    schedule.day_of_month ?? null,
+    schedule.run_date ?? null,
+    schedule.next_run,
+    schedule.media_type ?? null,
+    schedule.media_file_id ?? null,
+    schedule.parse_mode ?? null,
+    schedule.buttons_json ?? null
+    ).lastInsertRowid;
   },
 
   findById(id) {

@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Telegraf } = require('telegraf');
+const { Telegraf , Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
 
 const { BOT_TOKEN, PROXY_URL } = require('./config/env');
@@ -39,10 +39,23 @@ bot.use((ctx, next) => {
 bot.use(userMiddleware());
 
 // --- Handlers ---
-bot.start((ctx) => {
+bot.start(async (ctx) => {
   const name = ctx.from.first_name || 'amigo';
+
   return ctx.reply(
-    `¡Hola ${name}! 👋\n\nSoy tu bot programador de publicaciones.\nUsa /help para ver los comandos.`
+    `¡Hola ${name}! 👋\n\n` +
+      `Soy tu bot programador de publicaciones.\n` +
+      `Puedo publicar automáticamente en tus canales y grupos.`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '📢 Añadir canal', callback_data: 'start:addchannel' },
+            { text: '👤 Mi información', callback_data: 'start:me' },
+          ],
+        ],
+      },
+    }
   );
 });
 

@@ -1,7 +1,7 @@
 const logModel = require('../models/logModel');
 const scheduleModel = require('../models/scheduleModel');
+const { parseButtonsJson } = require('../utils/buttonBuilder');
 
-// Códigos de error que indican que el destino ya no es válido
 const FATAL_ERRORS = [
   'bot was kicked',
   'bot is not a member',
@@ -22,9 +22,24 @@ module.exports = {
     let failed = 0;
     let fatals = 0;
 
+    const replyMarkup = parseButtonsJson(schedule.buttons_json);
+    const parseMode = schedule.parse_mode || 'MarkdownV2';
+
     for (const chatId of schedule.targets) {
       try {
-        await bot.telegram.sendMessage(chatId, schedule.content);
+        if (schedule.media_type === 'photo' && schedule.media_file_id) {
+          await bot.telegram.sendPhoto(chatId, schedule.media_file_id, {
+            caption: schedule.content,
+            parse_mode: parseMode,
+            reply_markup: replyMarkup || undefined,
+          });
+        } else {
+          await bot.telegram.sendMessage(chatId, schedule.content, {
+            parse_mode: parseMode,
+            reply_markup: replyMarkup || undefined,
+          });
+        }
+
         logModel.log(schedule.id, chatId, 'success');
         success++;
       } catch (err) {
@@ -41,7 +56,6 @@ module.exports = {
         );
         if (fatal) {
           fatals++;
-          // Eliminar este target del schedule para no reintentar
           scheduleModel.removeTarget(schedule.id, chatId);
         }
         failed++;

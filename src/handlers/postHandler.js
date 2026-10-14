@@ -3,11 +3,15 @@ const scheduleService = require('../services/scheduleService');
 const scheduleModel = require('../models/scheduleModel');
 const logModel = require('../models/logModel');
 const channelModel = require('../models/channelModel');
+const planService = require('../services/planService');
 const { SCHEDULE_TYPES } = require('../config/constants');
 const { formatDate, WEEKDAYS } = require('../utils/dateHelpers');
 
 const STEPS = {
   CONTENT: 'content',
+  MEDIA: 'media',
+  FORMAT: 'format',
+  BUTTONS: 'buttons',
   TARGETS: 'targets',
   TYPE: 'type',
   TIME: 'time',
@@ -19,14 +23,12 @@ const STEPS = {
 
 module.exports = (bot) => {
   // ============================================================
-  // COMANDO /newpost — Flujo conversacional
+  // COMANDO /newpost
   // ============================================================
   bot.command('newpost', async (ctx) => {
     const channels = channelModel.getByUser(ctx.state.user.id);
     if (!channels.length) {
-      return ctx.reply(
-        '⚠️ No tienes canales registrados.\nUsa /addchannel primero.'
-      );
+      return ctx.reply('⚠️ No tienes canales registrados.\nUsa /addchannel primero.');
     }
 
     ctx.session.post = {};
@@ -34,21 +36,28 @@ module.exports = (bot) => {
 
     return ctx.reply(
       '📝 *Nueva publicación*\n\n' +
-        'Paso 1/5: Envíame el *contenido* del mensaje.\n\n' +
-        'Escribe /cancel para cancelar en cualquier momento.',
+        'Paso 1/6: Envíame el *contenido* del mensaje.\n\n' +
+        '💡 *Formatos soportados:*\n' +
+        '• `*negrita*`\n' +
+        '• `_cursiva_`\n' +
+        '• `~tachado~`\n' +
+        '• `||spoiler||`\n' +
+        '• `>cita` (al inicio de línea)\n' +
+        '• `` `código` ``\n\n' +
+        'Escribe /cancel para cancelar.',
       { parse_mode: 'Markdown' }
     );
   });
 
   // ============================================================
-  // COMANDO /posts — Lista con botones
+  // COMANDO /posts
   // ============================================================
   bot.command('posts', async (ctx) => {
     await showPostsList(ctx);
   });
 
   // ============================================================
-  // COMANDO /cancel — Salir del flujo
+  // COMANDO /cancel
   // ============================================================
   bot.command('cancel', async (ctx) => {
     ctx.session.post = null;
@@ -58,10 +67,42 @@ module.exports = (bot) => {
   });
 
   // ============================================================
+  // COMANDO /log <ID>
+  // ============================================================
+  bot.command('log', async (ctx) => {
+    const id = parseInt(ctx.message.text.split(' ')[1], 10);
+    if (isNaN(id)) return ctx.reply('Uso: /log <ID>');
+
+    const s = scheduleModel.findById(id);
+    if (!s || s.user_id !== ctx.state.user.id) {
+      return ctx.reply('❌ No encontré esa publicación.');
+    }
+
+    const logs = logModel.getBySchedule(id, 15);
+    if (!logs.length) {
+      return ctx.reply(`📭 La publicación #${id} no tiene envíos aún.`);
+    }
+
+    const text =
+      `📜 *Últimos envíos de #${id}*\n\n` +
+      logs
+        .map((l) => {
+          const icon =
+            l.status === 'success' ? '✅' : l.status === 'fatal' ? '💀' : '❌';
+          const err = l.error
+            ? `\n     \`${escapeMd(l.error.slice(0, 60))}\``
+            : '';
+          return `${icon} \`${l.chat_id}\` — ${new Date(l.sent_at).toLocaleString()}${err}`;
+        })
+        .join('\n\n');
+
+    return ctx.reply(text, { parse_mode: 'Markdown' });
+  });
+
+  // ============================================================
   // CALLBACKS DE BOTONES
   // ============================================================
 
-  // --- Ver detalle ---
   bot.action(/^po:view:(\d+)$/, async (ctx) => {
     const id = Number(ctx.match[1]);
     const s = scheduleModel.findById(id);
@@ -69,31 +110,13 @@ module.exports = (bot) => {
       return ctx.answerCbQuery('❌ No encontrada');
     }
 
-    const targets = scheduleModel.getTargets(id);
-    const status = s.is_active ? '🟢 Activa' : '⏸ Pausada';
-    const typeLabel = {
-      once: 'Una vez',
-      daily: 'Diaria',
-      weekly: 'Semanal',
-      monthly: 'Mensual',
-    }[s.schedule_type];
-
-    const text =
-      `📝 *Publicación #${s.id}*\n\n` +
-      `Estado: ${status}\n` +
-      `Tipo: ${typeLabel}\n` +
-      `Destinos: ${targets.length}\n` +
-      `Próxima: ${s.next_run ? formatDate(s.next_run) : '—'}\n\n` +
-      `Contenido:\n_${escapeMd(s.content)}_`;
-
-    await ctx.editMessageText(text, {
+    await ctx.editMessageText(buildPostText(s), {
       parse_mode: 'Markdown',
       reply_markup: buildPostKeyboard(s, id),
     });
     await ctx.answerCbQuery();
   });
 
-  // --- Pausar ---
   bot.action(/^po:pause:(\d+)$/, async (ctx) => {
     const id = Number(ctx.match[1]);
     const s = scheduleModel.findById(id);
@@ -107,7 +130,6 @@ module.exports = (bot) => {
     await refreshPostView(ctx, updated);
   });
 
-  // --- Reanudar ---
   bot.action(/^po:resume:(\d+)$/, async (ctx) => {
     const id = Number(ctx.match[1]);
     const s = scheduleModel.findById(id);
@@ -121,7 +143,6 @@ module.exports = (bot) => {
     await refreshPostView(ctx, updated);
   });
 
-  // --- Borrar (confirmar) ---
   bot.action(/^po:del:(\d+)$/, async (ctx) => {
     const id = Number(ctx.match[1]);
     const s = scheduleModel.findById(id);
@@ -148,7 +169,6 @@ module.exports = (bot) => {
     await ctx.answerCbQuery();
   });
 
-  // --- Borrar (ejecutar) ---
   bot.action(/^po:delok:(\d+)$/, async (ctx) => {
     const id = Number(ctx.match[1]);
     const s = scheduleModel.findById(id);
@@ -161,7 +181,6 @@ module.exports = (bot) => {
     await showPostsList(ctx, true);
   });
 
-  // --- Editar contenido ---
   bot.action(/^po:edit:(\d+)$/, async (ctx) => {
     const id = Number(ctx.match[1]);
     const s = scheduleModel.findById(id);
@@ -179,7 +198,6 @@ module.exports = (bot) => {
     );
   });
 
-  // --- Ver log ---
   bot.action(/^po:log:(\d+)$/, async (ctx) => {
     const id = Number(ctx.match[1]);
     const s = scheduleModel.findById(id);
@@ -192,7 +210,8 @@ module.exports = (bot) => {
       ? `📜 *Últimos envíos de #${id}*\n\n` +
         logs
           .map((l) => {
-            const icon = l.status === 'success' ? '✅' : '❌';
+            const icon =
+              l.status === 'success' ? '✅' : l.status === 'fatal' ? '💀' : '❌';
             const err = l.error
               ? `\n     \`${escapeMd(l.error.slice(0, 50))}\``
               : '';
@@ -212,15 +231,33 @@ module.exports = (bot) => {
     await ctx.answerCbQuery();
   });
 
-  // --- Volver a la lista ---
   bot.action('po:back', async (ctx) => {
     await ctx.answerCbQuery();
     await showPostsList(ctx, true);
   });
 
-  // --- Noop (para separadores o botones deshabilitados) ---
-  bot.action('po:noop', async (ctx) => {
-    await ctx.answerCbQuery();
+  // ============================================================
+  // CAPTURA DE FOTO
+  // ============================================================
+  bot.on('photo', async (ctx, next) => {
+    if (ctx.session?.step !== STEPS.MEDIA) return next();
+
+    // La foto de mayor resolución es la última del array
+    const photos = ctx.message.photo;
+    const fileId = photos[photos.length - 1].file_id;
+
+    ctx.session.post.media_type = 'photo';
+    ctx.session.post.media_file_id = fileId;
+    ctx.session.step = STEPS.FORMAT;
+
+    return ctx.reply(
+      '🖼 Imagen añadida.\n\n' +
+        'Paso 3/6: Elige el *formato del texto*:\n\n' +
+        '1️⃣ MarkdownV2 (recomendado)\n' +
+        '2️⃣ HTML\n' +
+        '3️⃣ Sin formato (texto plano)',
+      { parse_mode: 'Markdown' }
+    );
   });
 
   // ============================================================
@@ -229,7 +266,7 @@ module.exports = (bot) => {
   bot.use(async (ctx, next) => {
     if (!ctx.message?.text) return next();
 
-    // --- Edición de contenido de un post existente ---
+    // --- Edición de contenido ---
     if (ctx.session?.editingPostId) {
       const id = ctx.session.editingPostId;
       ctx.session.editingPostId = null;
@@ -247,24 +284,115 @@ module.exports = (bot) => {
     const post = ctx.session.post;
 
     try {
-      // PASO 1: contenido
+      // ============ PASO 1: contenido ============
       if (step === STEPS.CONTENT) {
         post.content = text;
-        ctx.session.step = STEPS.TARGETS;
+        ctx.session.step = STEPS.MEDIA;
+        return ctx.reply(
+          'Paso 2/6: ¿Quieres añadir una *imagen*?\n\n' +
+            '📸 Envía una foto, o escribe `saltar` para continuar sin imagen.',
+          { parse_mode: 'Markdown' }
+        );
+      }
 
+      // ============ PASO 2: imagen (solo saltar) ============
+      if (step === STEPS.MEDIA) {
+        if (['saltar', '0', 'no'].includes(text.toLowerCase())) {
+          post.media_type = null;
+          post.media_file_id = null;
+          ctx.session.step = STEPS.FORMAT;
+          return ctx.reply(
+            'Paso 3/6: Elige el *formato del texto*:\n\n' +
+              '1️⃣ MarkdownV2\n' +
+              '2️⃣ HTML\n' +
+              '3️⃣ Sin formato',
+            { parse_mode: 'Markdown' }
+          );
+        }
+        return ctx.reply(
+          '📸 Envía una imagen o escribe `saltar` para continuar sin imagen.',
+          { parse_mode: 'Markdown' }
+        );
+      }
+
+      // ============ PASO 3: formato ============
+      if (step === STEPS.FORMAT) {
+        const map = {
+          1: 'MarkdownV2',
+          2: 'HTML',
+          3: null,
+        };
+        const mode = map[text];
+        if (mode === undefined) {
+          return ctx.reply('❌ Opción no válida. Envía 1, 2 o 3.');
+        }
+        post.parse_mode = mode;
+        ctx.session.step = STEPS.BUTTONS;
+
+        // Si es free, saltar paso de botones
+        const plan = planService.getEffectivePlan(ctx.state.user);
+        if (plan.name === 'free') {
+          post.buttons_json = null;
+          ctx.session.step = STEPS.TARGETS;
+          const channels = channelModel.getByUser(ctx.state.user.id);
+          const lines = channels.map(
+            (c, i) =>
+              `${i + 1}. ${escapeMd(c.title || c.chat_id)} (\`${c.chat_id}\`)`
+          );
+          return ctx.reply(
+            '🔘 Los botones con enlace son una función de pago.\n\n' +
+              'Paso 5/6: Elige los *destinos* (varios números separados por comas).\n\n' +
+              lines.join('\n'),
+            { parse_mode: 'Markdown' }
+          );
+        }
+
+        return ctx.reply(
+          'Paso 4/6: *Botones con enlace* (opcional)\n\n' +
+            'Envía los botones en este formato:\n' +
+            '`Texto del botón | https://url.com`\n\n' +
+            '📌 Varios botones en la misma fila: sepáralos con `;;`\n' +
+            '📌 Botones en filas distintas: uno por línea\n\n' +
+            'Ejemplo:\n' +
+            '`📢 Canal | https://t.me/mi_canal ;; 💬 Grupo | https://t.me/mi_grupo`\n' +
+            '`🌐 Web | https://miweb.com`\n\n' +
+            'Escribe `saltar` para continuar sin botones.',
+          { parse_mode: 'Markdown' }
+        );
+      }
+
+      // ============ PASO 4: botones ============
+      if (step === STEPS.BUTTONS) {
+        if (['saltar', 'no', '0'].includes(text.toLowerCase())) {
+          post.buttons_json = null;
+        } else {
+          try {
+            const rows = parseButtonInput(text);
+            if (!rows.length) {
+              return ctx.reply(
+                '❌ No detecté botones válidos. Intenta de nuevo o escribe `saltar`.'
+              );
+            }
+            post.buttons_json = JSON.stringify(rows);
+          } catch (err) {
+            return ctx.reply(`❌ ${err.message}`);
+          }
+        }
+
+        ctx.session.step = STEPS.TARGETS;
         const channels = channelModel.getByUser(ctx.state.user.id);
         const lines = channels.map(
           (c, i) =>
             `${i + 1}. ${escapeMd(c.title || c.chat_id)} (\`${c.chat_id}\`)`
         );
         return ctx.reply(
-          'Paso 2/5: Elige los *destinos* (puedes enviar varios números separados por comas).\n\n' +
+          'Paso 5/6: Elige los *destinos* (varios números separados por comas).\n\n' +
             lines.join('\n'),
           { parse_mode: 'Markdown' }
         );
       }
 
-      // PASO 2: destinos
+      // ============ PASO 5: destinos ============
       if (step === STEPS.TARGETS) {
         const channels = channelModel.getByUser(ctx.state.user.id);
         const indexes = text
@@ -284,7 +412,7 @@ module.exports = (bot) => {
         ctx.session.step = STEPS.TYPE;
 
         return ctx.reply(
-          'Paso 3/5: Elige el *tipo de programación*:\n\n' +
+          'Paso 6/6: Elige el *tipo de programación*:\n\n' +
             '1️⃣ Una vez (fecha específica)\n' +
             '2️⃣ Diaria\n' +
             '3️⃣ Semanal\n' +
@@ -293,7 +421,7 @@ module.exports = (bot) => {
         );
       }
 
-      // PASO 3: tipo
+      // ============ PASO 6: tipo ============
       if (step === STEPS.TYPE) {
         const map = {
           1: SCHEDULE_TYPES.ONCE,
@@ -306,51 +434,48 @@ module.exports = (bot) => {
 
         post.schedule_type = type;
 
-        // ONE-TIME: pide fecha completa
         if (type === SCHEDULE_TYPES.ONCE) {
           ctx.session.step = STEPS.RUN_DATE;
           return ctx.reply(
-            'Paso 4/5: Envíame la *fecha y hora* en formato `DD/MM/AAAA HH:MM`.\n\n' +
+            '📅 Envíame la *fecha y hora* en formato `DD/MM/AAAA HH:MM`.\n\n' +
               'Ejemplo: `25/12/2026 09:30`',
             { parse_mode: 'Markdown' }
           );
         }
 
-        // WEEKLY: pide día de la semana
         if (type === SCHEDULE_TYPES.WEEKLY) {
           ctx.session.step = STEPS.WEEKDAY;
           return ctx.reply(
-            'Paso 4/5: Envíame el *día de la semana*:\n\n' +
+            '📅 Envíame el *día de la semana*:\n\n' +
               '0️⃣ Domingo\n1️⃣ Lunes\n2️⃣ Martes\n3️⃣ Miércoles\n' +
               '4️⃣ Jueves\n5️⃣ Viernes\n6️⃣ Sábado',
             { parse_mode: 'Markdown' }
           );
         }
 
-        // MONTHLY: pide día del mes
         if (type === SCHEDULE_TYPES.MONTHLY) {
           ctx.session.step = STEPS.DAY_OF_MONTH;
-          return ctx.reply(
-            'Paso 4/5: Envíame el *día del mes* (1-31).',
-            { parse_mode: 'Markdown' }
-          );
+          return ctx.reply('📅 Envíame el *día del mes* (1-31).', {
+            parse_mode: 'Markdown',
+          });
         }
 
-        // DAILY: salta a la hora
+        // DAILY: salta directo a hora
         ctx.session.step = STEPS.TIME;
         return ctx.reply(
-          'Paso 4/5: Envíame la *hora* en formato `HH:MM` (24h).\nEjemplo: `09:30`',
+          '🕒 Envíame la *hora* en formato `HH:MM` (24h).\nEjemplo: `09:30`',
           { parse_mode: 'Markdown' }
         );
       }
 
-      // PASO 4a: fecha única
+      // ============ PASO 6a: fecha única ============
       if (step === STEPS.RUN_DATE) {
         const m = text.match(
           /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/
         );
-        if (!m)
+        if (!m) {
           return ctx.reply('❌ Formato inválido. Usa `DD/MM/AAAA HH:MM`.');
+        }
         const [, dd, mm, yyyy, hh, min] = m;
         const d = new Date(+yyyy, +mm - 1, +dd, +hh, +min);
         if (isNaN(d)) return ctx.reply('❌ Fecha inválida.');
@@ -362,7 +487,7 @@ module.exports = (bot) => {
         return askConfirm(ctx, post);
       }
 
-      // PASO 4b: día de la semana
+      // ============ PASO 6b: día de la semana ============
       if (step === STEPS.WEEKDAY) {
         const wd = parseInt(text, 10);
         if (isNaN(wd) || wd < 0 || wd > 6) {
@@ -371,12 +496,12 @@ module.exports = (bot) => {
         post.weekday = wd;
         ctx.session.step = STEPS.TIME;
         return ctx.reply(
-          `Día: *${WEEKDAYS[wd]}*.\n\nAhora la *hora* en formato \`HH:MM\`.`,
+          `Día: *${WEEKDAYS[wd]}*.\n\n🕒 Ahora la *hora* en formato \`HH:MM\`.`,
           { parse_mode: 'Markdown' }
         );
       }
 
-      // PASO 4c: día del mes
+      // ============ PASO 6c: día del mes ============
       if (step === STEPS.DAY_OF_MONTH) {
         const dom = parseInt(text, 10);
         if (isNaN(dom) || dom < 1 || dom > 31) {
@@ -385,12 +510,12 @@ module.exports = (bot) => {
         post.day_of_month = dom;
         ctx.session.step = STEPS.TIME;
         return ctx.reply(
-          `Día del mes: *${dom}*.\n\nAhora la *hora* en formato \`HH:MM\`.`,
+          `Día del mes: *${dom}*.\n\n🕒 Ahora la *hora* en formato \`HH:MM\`.`,
           { parse_mode: 'Markdown' }
         );
       }
 
-      // PASO 5: hora (para daily/weekly/monthly)
+      // ============ PASO 6d: hora ============
       if (step === STEPS.TIME) {
         const m = text.match(/^(\d{1,2}):(\d{2})$/);
         if (!m) return ctx.reply('❌ Formato inválido. Usa `HH:MM`.');
@@ -404,7 +529,7 @@ module.exports = (bot) => {
         return askConfirm(ctx, post);
       }
 
-      // CONFIRMACIÓN
+      // ============ CONFIRMACIÓN ============
       if (step === STEPS.CONFIRM) {
         const ans = text.toLowerCase();
         if (['sí', 'si', 's', 'yes', 'y'].includes(ans)) {
@@ -438,6 +563,35 @@ module.exports = (bot) => {
 // ============================================================
 
 /**
+ * Construye el texto descriptivo de una publicación.
+ */
+function buildPostText(s) {
+  const targets = scheduleModel.getTargets(s.id);
+  const status = s.is_active ? '🟢 Activa' : '⏸ Pausada';
+  const typeLabel = {
+    once: 'Una vez',
+    daily: 'Diaria',
+    weekly: 'Semanal',
+    monthly: 'Mensual',
+  }[s.schedule_type];
+
+  let extras = '';
+  if (s.media_type === 'photo') extras += '🖼 Con imagen\n';
+  if (s.buttons_json) extras += '🔘 Con botones\n';
+  if (s.parse_mode) extras += `🎨 Formato: ${s.parse_mode}\n`;
+
+  return (
+    `📝 *Publicación #${s.id}*\n\n` +
+    `Estado: ${status}\n` +
+    `Tipo: ${typeLabel}\n` +
+    `Destinos: ${targets.length}\n` +
+    `Próxima: ${s.next_run ? formatDate(s.next_run) : '—'}\n` +
+    (extras ? `\n${extras}` : '') +
+    `\nContenido:\n_${escapeMd(s.content)}_`
+  );
+}
+
+/**
  * Construye el teclado inline para una publicación.
  */
 function buildPostKeyboard(s, id) {
@@ -459,33 +613,15 @@ function buildPostKeyboard(s, id) {
 }
 
 /**
- * Refresca la vista de detalle de una publicación tras una acción.
+ * Refresca la vista de detalle tras una acción.
  */
 async function refreshPostView(ctx, s) {
-  const targets = scheduleModel.getTargets(s.id);
-  const status = s.is_active ? '🟢 Activa' : '⏸ Pausada';
-  const typeLabel = {
-    once: 'Una vez',
-    daily: 'Diaria',
-    weekly: 'Semanal',
-    monthly: 'Mensual',
-  }[s.schedule_type];
-
-  const text =
-    `📝 *Publicación #${s.id}*\n\n` +
-    `Estado: ${status}\n` +
-    `Tipo: ${typeLabel}\n` +
-    `Destinos: ${targets.length}\n` +
-    `Próxima: ${s.next_run ? formatDate(s.next_run) : '—'}\n\n` +
-    `Contenido:\n_${escapeMd(s.content)}_`;
-
   try {
-    await ctx.editMessageText(text, {
+    await ctx.editMessageText(buildPostText(s), {
       parse_mode: 'Markdown',
       reply_markup: buildPostKeyboard(s, s.id),
     });
   } catch (err) {
-    // Si el mensaje no cambió, Telegram lanza error — lo ignoramos
     if (!err.message.includes('message is not modified')) {
       console.error('Error refrescando vista de post:', err.message);
     }
@@ -504,9 +640,8 @@ async function showPostsList(ctx, edit = false) {
 
   const keyboard = list.map((s) => {
     const icon = s.is_active ? '🟢' : '⏸';
-    const preview = s.content.length > 35
-      ? s.content.slice(0, 35) + '…'
-      : s.content;
+    const preview =
+      s.content.length > 35 ? s.content.slice(0, 35) + '…' : s.content;
     return [
       {
         text: `${icon} #${s.id} — ${s.schedule_type} — ${preview}`,
@@ -555,15 +690,63 @@ function askConfirm(ctx, post) {
     when = `Todos los días a las ${pad(post.hour)}:${pad(post.minute)}`;
   }
 
+  let extras = '';
+  if (post.media_type === 'photo') extras += '🖼 Con imagen\n';
+  if (post.buttons_json) {
+    try {
+      const rows = JSON.parse(post.buttons_json);
+      const total = rows.reduce((acc, r) => acc + r.length, 0);
+      extras += `🔘 ${total} botón(es)\n`;
+    } catch (_) {}
+  }
+  if (post.parse_mode) extras += `🎨 ${post.parse_mode}\n`;
+
   return ctx.reply(
     `📋 *Resumen*\n\n` +
       `📝 Contenido: ${escapeMd(truncate(post.content, 60))}\n` +
       `🎯 Destinos: ${post.targets.length}\n` +
       `🔁 Tipo: ${typeLabel}\n` +
-      `⏰ Cuándo: ${when}\n\n` +
-      `¿Confirmas? Responde *sí* o *no*.`,
+      `⏰ Cuándo: ${when}\n` +
+      (extras ? `\n${extras}` : '') +
+      `\n¿Confirmas? Responde *sí* o *no*.`,
     { parse_mode: 'Markdown' }
   );
+}
+
+/**
+ * Parsea la entrada de botones del usuario.
+ * Formato: "Texto | url" con ";;" para separar en misma fila,
+ * y salto de línea para nueva fila.
+ */
+function parseButtonInput(text) {
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const rows = [];
+
+  for (const line of lines) {
+    const buttons = line.split(';;').map((b) => b.trim());
+    const row = [];
+
+    for (const btn of buttons) {
+      const parts = btn.split('|').map((p) => p.trim());
+      if (parts.length !== 2) {
+        throw new Error(
+          `Formato incorrecto: "${btn}". Usa "Texto | https://url.com"`
+        );
+      }
+      const [label, url] = parts;
+      if (!/^https?:\/\//.test(url)) {
+        throw new Error(`La URL debe empezar por http o https: "${url}"`);
+      }
+      row.push({ text: label, url, style: null });
+    }
+
+    if (row.length) rows.push(row);
+  }
+
+  return rows;
 }
 
 function truncate(str, n) {

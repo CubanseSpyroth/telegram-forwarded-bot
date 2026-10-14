@@ -1,5 +1,14 @@
 const db = require('./connection');
 
+function addColumnSafe(db, table, column, definition) {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  } catch (err) {
+    if (!err.message.includes('duplicate column')) throw err;
+  }
+}
+
+
 function runMigrations() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -66,12 +75,17 @@ function runMigrations() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
-CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
+    CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
 
     CREATE INDEX IF NOT EXISTS idx_schedules_active ON schedules(is_active, next_run);
     CREATE INDEX IF NOT EXISTS idx_channels_user ON channels(user_id);
     CREATE INDEX IF NOT EXISTS idx_targets_schedule ON schedule_targets(schedule_id);
   `);
+
+  addColumnSafe(db, 'schedules', 'media_type', 'TEXT');
+  addColumnSafe(db, 'schedules', 'media_file_id', 'TEXT');
+  addColumnSafe(db, 'schedules', 'parse_mode', 'TEXT');
+  addColumnSafe(db, 'schedules', 'buttons_json', 'TEXT');
 
   console.log('✅ Migraciones aplicadas');
 }
