@@ -26,7 +26,8 @@ module.exports = (bot) => {
   registerViewActions(bot);
   registerEditActions(bot);
   registerFlowCallbacks(bot);
-  registerFlowHandlers(bot);
+  registerPhotoHandler(bot);
+  registerTextHandler(bot);
 };
 
 // ============================================================
@@ -202,34 +203,26 @@ async function onBack(ctx) {
 function registerEditActions(bot) {
   bot.action(/^po:edit:(\d+)$/, onEditMenu);
 
-  // Contenido
   bot.action(/^poe:content:(\d+)$/, (ctx) => startEditing(ctx, EDIT_FIELDS.CONTENT));
 
-  // Imagen
   bot.action(/^poe:media:(\d+)$/, onEditMediaMenu);
   bot.action(/^poe:media:new:(\d+)$/, (ctx) => startEditing(ctx, EDIT_FIELDS.MEDIA));
   bot.action(/^poe:media:remove:(\d+)$/, (ctx) => onEditRemove(ctx, EDIT_FIELDS.MEDIA));
 
-  // Botones
   bot.action(/^poe:buttons:(\d+)$/, onEditButtonsMenu);
   bot.action(/^poe:buttons:new:(\d+)$/, (ctx) => startEditing(ctx, EDIT_FIELDS.BUTTONS));
   bot.action(/^poe:buttons:remove:(\d+)$/, (ctx) => onEditRemove(ctx, EDIT_FIELDS.BUTTONS));
 
-  // Formato
   bot.action(/^poe:format:(\d+)$/, onEditFormatMenu);
   bot.action(/^poe:format:set:(\d+):(.+)$/, onEditFormatSet);
 
-  // Destinos
   bot.action(/^poe:targets:(\d+)$/, (ctx) => startEditing(ctx, EDIT_FIELDS.TARGETS));
 
-  // Tipo
   bot.action(/^poe:type:(\d+)$/, onEditTypeMenu);
   bot.action(/^poe:type:set:(\d+):(.+)$/, onEditTypeSet);
 
-  // Hora
   bot.action(/^poe:time:(\d+)$/, (ctx) => startEditing(ctx, EDIT_FIELDS.TIME));
 
-  // Fecha/día
   bot.action(/^poe:date:(\d+)$/, onEditDateMenu);
 }
 
@@ -667,12 +660,12 @@ async function onNpConfirmPreview(ctx) {
 }
 
 // ============================================================
-// FLUJOS DE CAPTURA (foto y texto)
+// CAPTURA DE FOTO
 // ============================================================
 
-function registerFlowHandlers(bot) {
+function registerPhotoHandler(bot) {
   bot.on('photo', async (ctx, next) => {
-    // Edición de imagen existente
+    // 1. Edición de imagen existente
     if (ctx.session?.editing?.field === EDIT_FIELDS.MEDIA) {
       const postId = ctx.session.editing.postId;
       const fileId = getLargestPhoto(ctx.message.photo);
@@ -686,11 +679,14 @@ function registerFlowHandlers(bot) {
       });
     }
 
-    // Flujo /newpost: paso MEDIA
-    if (ctx.session?.step !== STEPS.MEDIA) return next();
+    // 2. Flujo /newpost: paso MEDIA
+    if (ctx.session?.step !== STEPS.MEDIA || !ctx.session?.post) {
+      return next();
+    }
 
+    const fileId = getLargestPhoto(ctx.message.photo);
     ctx.session.post.media_type = 'photo';
-    ctx.session.post.media_file_id = getLargestPhoto(ctx.message.photo);
+    ctx.session.post.media_file_id = fileId;
     ctx.session.step = STEPS.FORMAT;
 
     return ctx.reply(stepFormatText(), {
@@ -698,9 +694,16 @@ function registerFlowHandlers(bot) {
       reply_markup: { inline_keyboard: buildFormatKeyboard() },
     });
   });
+}
 
+// ============================================================
+// CAPTURA DE TEXTO
+// ============================================================
+
+function registerTextHandler(bot) {
   bot.use(async (ctx, next) => {
-    if (!ctx.message?.text) return next();
+    // Solo procesar mensajes de texto SIN foto adjunta
+    if (!ctx.message?.text || ctx.message?.photo) return next();
 
     // 1. Edición de campo
     if (ctx.session?.editing) {
@@ -1286,6 +1289,11 @@ function pad(n) {
   return String(n).padStart(2, '0');
 }
 
+/**
+ * Escapa caracteres reservados de Markdown legacy (parse_mode: 'Markdown').
+ * Solo los 4 caracteres que realmente rompen el parseo:
+ *   _  *  `  [
+ */
 function escapeMd(str = '') {
-  return String(str).replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
+  return String(str).replace(/([_*`\[\]])/g, '\\$1');
 }

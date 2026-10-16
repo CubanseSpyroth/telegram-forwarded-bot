@@ -255,7 +255,7 @@ async function safeEdit(ctx, text, options = {}) {
 }
 
 function escapeMd(str = '') {
-  return String(str).replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
+  return String(str).replace(/([_*`\[\]])/g, '\\$1');
 }
 
 // ============================================================
