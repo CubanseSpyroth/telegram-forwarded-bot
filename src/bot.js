@@ -15,6 +15,7 @@ const registerAdminHandler = require('./handlers/adminHandler');
 
 const { startScheduler } = require('./scheduler');
 const { startCleanup } = require('./scheduler/cleanup');
+const { startChannelVerification } = require('./scheduler/verifyChannels');
 
 console.log('🚀 Iniciando bot...');
 runMigrations();
@@ -100,6 +101,7 @@ registerAdminHandler(bot);
 
 startScheduler(bot);
 startCleanup();
+startChannelVerification(bot);
 
 bot.catch((err, ctx) => {
   console.error(`❌ Error en ${ctx.updateType}:`, err.message);
