@@ -97,6 +97,7 @@ function registerViewActions(bot) {
   bot.action(/^po:del:(\d+)$/, onDeleteConfirm);
   bot.action(/^po:delok:(\d+)$/, onDeleteConfirmYes);
   bot.action(/^po:log:(\d+)$/, onViewLog);
+  bot.action(/^po:preview:(\d+)$/, onPreview);
   bot.action('po:back', onBack);
 }
 
@@ -109,10 +110,16 @@ async function onView(ctx) {
     parse_mode: 'Markdown',
     reply_markup: buildPostKeyboard(s),
   });
+}
 
+async function onPreview(ctx) {
+  const s = await findUserPost(ctx);
+  if (!s) return;
+
+  await ctx.answerCbQuery();
   await ctx.reply('👁 *Vista previa:*', { parse_mode: 'Markdown' });
-  const preview = await sendPostPreview(ctx, s);
 
+  const preview = await sendPreview(ctx, s);
   if (!preview.ok) {
     await ctx.reply(
       `⚠️ La vista previa falló:\n\`${escapeMd(preview.error.slice(0, 100))}\``,
@@ -523,6 +530,7 @@ function registerFlowCallbacks(bot) {
   bot.action(/^np:type:(once|daily|weekly|monthly)$/, onNpType);
   bot.action('np:confirm:yes', onNpConfirmYes);
   bot.action('np:confirm:no', onNpConfirmNo);
+  bot.action('np:confirm:preview', onNpConfirmPreview);
 }
 
 async function onNpMediaSkip(ctx) {
@@ -582,9 +590,11 @@ async function onNpType(ctx) {
 
   if (type === SCHEDULE_TYPES.ONCE) {
     ctx.session.step = STEPS.RUN_DATE;
-    return safeEdit(ctx, '📅 Envíame la *fecha y hora* en formato `DD/MM/AAAA HH:MM`.\n\nEjemplo: `25/12/2026 09:30`', {
-      parse_mode: 'Markdown',
-    });
+    return safeEdit(
+      ctx,
+      '📅 Envíame la *fecha y hora* en formato `DD/MM/AAAA HH:MM`.\n\nEjemplo: `25/12/2026 09:30`',
+      { parse_mode: 'Markdown' }
+    );
   }
 
   if (type === SCHEDULE_TYPES.WEEKLY) {
@@ -638,6 +648,22 @@ async function onNpConfirmNo(ctx) {
   ctx.session.step = null;
   await ctx.answerCbQuery('❌ Cancelado');
   return safeEdit(ctx, '❌ Publicación cancelada.', { parse_mode: 'Markdown' });
+}
+
+async function onNpConfirmPreview(ctx) {
+  const post = ctx.session?.post;
+  if (!post) return ctx.answerCbQuery('❌ Sesión expirada');
+
+  await ctx.answerCbQuery();
+  await ctx.reply('👁 *Vista previa:*', { parse_mode: 'Markdown' });
+
+  const preview = await sendPreview(ctx, post);
+  if (!preview.ok) {
+    await ctx.reply(
+      `⚠️ La vista previa falló:\n\`${escapeMd(preview.error.slice(0, 100))}\``,
+      { parse_mode: 'Markdown' }
+    );
+  }
 }
 
 // ============================================================
@@ -702,7 +728,9 @@ async function handleEditingInput(ctx) {
 
     const goBack = {
       reply_markup: {
-        inline_keyboard: [[{ text: '⬅️ Volver a editar', callback_data: `po:edit:${postId}` }]],
+        inline_keyboard: [
+          [{ text: '⬅️ Volver a editar', callback_data: `po:edit:${postId}` }],
+        ],
       },
     };
 
@@ -918,6 +946,7 @@ function buildTypeKeyboard() {
 
 function buildConfirmKeyboard() {
   return [
+    [{ text: '👁 Ver vista previa', callback_data: 'np:confirm:preview' }],
     [
       { text: '✅ Confirmar', callback_data: 'np:confirm:yes' },
       { text: '❌ Cancelar', callback_data: 'np:confirm:no' },
@@ -935,9 +964,10 @@ function buildPostKeyboard(s) {
         { text: '📜 Ver log', callback_data: `po:log:${s.id}` },
       ],
       [
+        { text: '👁 Vista previa', callback_data: `po:preview:${s.id}` },
         { text: '✏️ Editar', callback_data: `po:edit:${s.id}` },
-        { text: '🗑 Borrar', callback_data: `po:del:${s.id}` },
       ],
+      [{ text: '🗑 Borrar', callback_data: `po:del:${s.id}` }],
       [{ text: '⬅️ Volver', callback_data: 'po:back' }],
     ],
   };
@@ -1017,21 +1047,6 @@ function stepConfirmText(post) {
 
 async function askConfirm(ctx, post) {
   ctx.session.step = STEPS.CONFIRM;
-
-  await ctx.reply('👁 *Vista previa de tu publicación:*', {
-    parse_mode: 'Markdown',
-  });
-
-  const preview = await sendPreview(ctx, post);
-
-  if (!preview.ok) {
-    return ctx.reply(
-      `⚠️ *La vista previa falló*\n\n` +
-        `Error: \`${escapeMd(preview.error)}\`\n\n` +
-        `La publicación podría fallar al enviarse.`,
-      { parse_mode: 'Markdown' }
-    );
-  }
 
   await ctx.reply(stepConfirmText(post), {
     parse_mode: 'Markdown',
@@ -1201,10 +1216,6 @@ async function showPostsList(ctx, edit = false) {
     return safeEdit(ctx, text, opts);
   }
   return ctx.reply(text, opts);
-}
-
-async function sendPostPreview(ctx, s) {
-  return sendPreview(ctx, s);
 }
 
 async function sendPreview(ctx, post) {
