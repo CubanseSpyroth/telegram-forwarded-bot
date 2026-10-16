@@ -1,6 +1,7 @@
+// src/services/publisherService.js
 const logModel = require('../models/logModel');
 const scheduleModel = require('../models/scheduleModel');
-const { parseButtonsJson } = require('../utils/buttonBuilder');
+const { parseButtonsJson } = require('../utils/buttons');
 
 const FATAL_ERRORS = [
   'bot was kicked',
@@ -23,21 +24,22 @@ module.exports = {
     let fatals = 0;
 
     const replyMarkup = parseButtonsJson(schedule.buttons_json);
-    const parseMode = schedule.parse_mode || 'MarkdownV2';
+    const parseMode = schedule.parse_mode || null;
 
     for (const chatId of schedule.targets) {
       try {
+        const options = {
+          ...(parseMode ? { parse_mode: parseMode } : {}),
+          ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+        };
+
         if (schedule.media_type === 'photo' && schedule.media_file_id) {
           await bot.telegram.sendPhoto(chatId, schedule.media_file_id, {
             caption: schedule.content,
-            parse_mode: parseMode,
-            reply_markup: replyMarkup || undefined,
+            ...options,
           });
         } else {
-          await bot.telegram.sendMessage(chatId, schedule.content, {
-            parse_mode: parseMode,
-            reply_markup: replyMarkup || undefined,
-          });
+          await bot.telegram.sendMessage(chatId, schedule.content, options);
         }
 
         logModel.log(schedule.id, chatId, 'success');
