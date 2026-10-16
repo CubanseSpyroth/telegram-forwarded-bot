@@ -44,8 +44,10 @@ bot.start(async (ctx) => {
       reply_markup: {
         inline_keyboard: [
           [
-            { text: '📢 Añadir canal', callback_data: 'start:addchannel' },
-            { text: '👤 Mi información', callback_data: 'start:me' },
+            { text: '📢 Añadir canal', callback_data: 'start:addchannel' }
+          ],
+          [
+            { text: '👤 Mi información', callback_data: 'start:me' }
           ],
         ],
       },
@@ -53,22 +55,15 @@ bot.start(async (ctx) => {
   );
 });
 
+// Callback que ejecuta la lógica del comando
 bot.action('start:addchannel', async (ctx) => {
   await ctx.answerCbQuery();
-  ctx.session.awaiting = 'addchannel';
-  return ctx.reply(
-    '📢 Envíame el @username o el ID numérico del canal/grupo.\n\n' +
-      'Ejemplos:\n' +
-      '• `@mi_canal_publico`\n' +
-      '• `-1001234567890`\n\n' +
-      '⚠️ Recuerda añadirme como administrador.',
-    { parse_mode: 'Markdown' }
-  );
+  return channelHandler.handleAddChannelCommand(ctx);
 });
 
 bot.action('start:me', async (ctx) => {
   await ctx.answerCbQuery();
-  return ctx.reply('Usa /me para ver tu información.');
+  return meHandler.handleMeCommand(ctx);
 });
 
 // --- /help ---
