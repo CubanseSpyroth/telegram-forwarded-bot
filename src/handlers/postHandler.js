@@ -26,8 +26,7 @@ module.exports = (bot) => {
   registerViewActions(bot);
   registerEditActions(bot);
   registerFlowCallbacks(bot);
-  registerPhotoHandler(bot);
-  registerTextHandler(bot);
+  registerFlowHandlers(bot);
 };
 
 // ============================================================
@@ -663,56 +662,52 @@ async function onNpConfirmPreview(ctx) {
 // CAPTURA DE FOTO
 // ============================================================
 
-function registerPhotoHandler(bot) {
-  bot.on('photo', async (ctx, next) => {
-    // 1. Edición de imagen existente
-    if (ctx.session?.editing?.field === EDIT_FIELDS.MEDIA) {
-      const postId = ctx.session.editing.postId;
-      const fileId = getLargestPhoto(ctx.message.photo);
-      scheduleModel.updateMedia(postId, 'photo', fileId);
-      ctx.session.editing = null;
+function registerFlowHandlers(bot) {
+  bot.on('message', async (ctx, next) => {
+    const msg = ctx.message;
+    if (!msg) return next();
 
-      return ctx.reply('✅ Imagen actualizada.', {
-        reply_markup: {
-          inline_keyboard: [[{ text: '⬅️ Volver', callback_data: `po:edit:${postId}` }]],
-        },
-      });
-    }
+    // ==================== FOTO ====================
+    if (msg.photo) {
+      // Modo edición de imagen
+      if (ctx.session?.editing?.field === EDIT_FIELDS.MEDIA) {
+        const postId = ctx.session.editing.postId;
+        scheduleModel.updateMedia(postId, 'photo', getLargestPhoto(msg.photo));
+        ctx.session.editing = null;
 
-    // 2. Flujo /newpost: paso MEDIA
-    if (ctx.session?.step !== STEPS.MEDIA || !ctx.session?.post) {
+        return ctx.reply('✅ Imagen actualizada.', {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Volver', callback_data: `po:edit:${postId}` }],
+            ],
+          },
+        });
+      }
+
+      // Flujo /newpost: paso MEDIA
+      if (ctx.session?.step === STEPS.MEDIA && ctx.session?.post) {
+        ctx.session.post.media_type = 'photo';
+        ctx.session.post.media_file_id = getLargestPhoto(msg.photo);
+        ctx.session.step = STEPS.FORMAT;
+
+        return ctx.reply(stepFormatText(), {
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: buildFormatKeyboard() },
+        });
+      }
+
       return next();
     }
 
-    const fileId = getLargestPhoto(ctx.message.photo);
-    ctx.session.post.media_type = 'photo';
-    ctx.session.post.media_file_id = fileId;
-    ctx.session.step = STEPS.FORMAT;
+    // ==================== TEXTO ====================
+    if (msg.text) {
+      if (ctx.session?.editing) {
+        return handleEditingInput(ctx);
+      }
 
-    return ctx.reply(stepFormatText(), {
-      parse_mode: 'Markdown',
-      reply_markup: { inline_keyboard: buildFormatKeyboard() },
-    });
-  });
-}
-
-// ============================================================
-// CAPTURA DE TEXTO
-// ============================================================
-
-function registerTextHandler(bot) {
-  bot.use(async (ctx, next) => {
-    // Solo procesar mensajes de texto SIN foto adjunta
-    if (!ctx.message?.text || ctx.message?.photo) return next();
-
-    // 1. Edición de campo
-    if (ctx.session?.editing) {
-      return handleEditingInput(ctx);
-    }
-
-    // 2. Flujo /newpost
-    if (ctx.session?.step && ctx.session?.post) {
-      return handleNewPostInput(ctx, next);
+      if (ctx.session?.step && ctx.session?.post) {
+        return handleNewPostInput(ctx, next);
+      }
     }
 
     return next();

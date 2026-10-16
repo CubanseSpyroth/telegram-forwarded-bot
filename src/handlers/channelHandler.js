@@ -1,6 +1,7 @@
 // src/handlers/channelHandler.js
 const channelService = require('../services/channelService');
 const channelModel = require('../models/channelModel');
+const { escapeMd } = require('../utils/stringHelpers');
 
 // ============================================================
 // EXPORT PRINCIPAL
@@ -24,12 +25,10 @@ function registerCommands(bot) {
 async function handleAddChannelCommand(ctx) {
   const text = ctx.message.text.replace('/addchannel', '').trim();
 
-  // Si viene con argumento: /addchannel @canal
   if (text) {
     return handleAddChannel(ctx, text);
   }
 
-  // Si no: activar el modo espera
   ctx.session.awaiting = 'addchannel';
   return ctx.reply(
     '📢 Envíame el @username o el ID numérico del canal/grupo.\n\n' +
@@ -42,27 +41,19 @@ async function handleAddChannelCommand(ctx) {
 }
 
 // ============================================================
-// ACCIONES (callbacks)
+// ACCIONES
 // ============================================================
 
 function registerActions(bot) {
-  // Desde /start
   bot.action('start:addchannel', async (ctx) => {
     await ctx.answerCbQuery();
     return handleAddChannelCommand(ctx);
   });
 
-  // Vista de canal
   bot.action(/^ch:view:(\d+)$/, onViewChannel);
-
-  // Borrar
   bot.action(/^ch:del:(\d+)$/, onDeleteConfirm);
   bot.action(/^ch:delok:(\d+)$/, onDeleteConfirmYes);
-
-  // Editar
   bot.action(/^ch:edit:(\d+)$/, onEditStart);
-
-  // Volver
   bot.action('ch:back', async (ctx) => {
     await ctx.answerCbQuery();
     await showChannelsList(ctx, true);
@@ -74,7 +65,8 @@ async function onViewChannel(ctx) {
   if (!channel) return;
 
   await ctx.answerCbQuery();
-  await ctx.editMessageText(
+  await safeEdit(
+    ctx,
     `📢 *${escapeMd(channel.title || channel.chat_id)}*\n\n` +
       `🆔 \`${channel.chat_id}\`\n` +
       `📁 Tipo: ${channel.type}\n` +
@@ -100,7 +92,8 @@ async function onDeleteConfirm(ctx) {
   if (!channel) return;
 
   await ctx.answerCbQuery();
-  await ctx.editMessageText(
+  await safeEdit(
+    ctx,
     `⚠️ ¿Seguro que quieres borrar el canal *${escapeMd(channel.title || channel.chat_id)}*?\n\n` +
       `Se eliminarán también las publicaciones asociadas.`,
     {
@@ -132,28 +125,31 @@ async function onEditStart(ctx) {
 
   ctx.session.editingChannel = channel.id;
   await ctx.answerCbQuery();
-  await ctx.editMessageText(
+  await safeEdit(
+    ctx,
     `✏️ Envíame el *nuevo título* para el canal.\n\n` +
       `Actual: \`${escapeMd(channel.title || channel.chat_id)}\`\n\n` +
       `(El \`chat_id\` no cambia, solo el nombre mostrado)`,
     {
       parse_mode: 'Markdown',
       reply_markup: {
-        inline_keyboard: [[{ text: '❌ Cancelar', callback_data: `ch:view:${channel.id}` }]],
+        inline_keyboard: [
+          [{ text: '❌ Cancelar', callback_data: `ch:view:${channel.id}` }],
+        ],
       },
     }
   );
 }
 
 // ============================================================
-// CAPTURA DE TEXTO (addchannel + editar nombre)
+// CAPTURA DE TEXTO
 // ============================================================
 
 function registerTextCapture(bot) {
   bot.use(async (ctx, next) => {
-    if (!ctx.message?.text) return next();
+    if (!ctx.message?.text || ctx.message?.photo) return next();
 
-    // Editar nombre de canal
+    // Editar canal
     if (ctx.session?.editingChannel) {
       const id = ctx.session.editingChannel;
       ctx.session.editingChannel = null;
@@ -165,7 +161,7 @@ function registerTextCapture(bot) {
       });
     }
 
-    // Esperando datos de un nuevo canal
+    // Añadir canal
     if (ctx.session?.awaiting === 'addchannel') {
       ctx.session.awaiting = null;
       return handleAddChannel(ctx, ctx.message.text.trim());
@@ -176,7 +172,7 @@ function registerTextCapture(bot) {
 }
 
 // ============================================================
-// HANDLER COMPARTIDO: añadir canal
+// HANDLERS COMPARTIDOS
 // ============================================================
 
 async function handleAddChannel(ctx, rawInput) {
@@ -186,7 +182,6 @@ async function handleAddChannel(ctx, rawInput) {
       ctx.state.user,
       rawInput
     );
-
     return ctx.reply(
       `✅ Canal añadido:\n\n*${escapeMd(channel.title)}*\n\`${channel.chat_id}\``,
       { parse_mode: 'Markdown' }
@@ -195,10 +190,6 @@ async function handleAddChannel(ctx, rawInput) {
     return ctx.reply(`❌ ${err.message}`);
   }
 }
-
-// ============================================================
-// LISTA DE CANALES
-// ============================================================
 
 async function showChannelsList(ctx, edit = false) {
   const list = channelModel.getByUser(ctx.state.user.id);
@@ -229,10 +220,6 @@ async function showChannelsList(ctx, edit = false) {
 // HELPERS
 // ============================================================
 
-/**
- * Busca un canal por ID y verifica que pertenece al usuario actual.
- * Responde con error y devuelve null si no cumple.
- */
 async function findUserChannel(ctx) {
   const id = Number(ctx.match[1]);
   const channel = channelModel.findById(id);
@@ -254,12 +241,8 @@ async function safeEdit(ctx, text, options = {}) {
   }
 }
 
-function escapeMd(str = '') {
-  return String(str).replace(/([_*`\[\]])/g, '\\$1');
-}
-
 // ============================================================
-// EXPORTS ADICIONALES (para reutilizar desde otros handlers)
+// EXPORTS ADICIONALES
 // ============================================================
 
 module.exports.handleAddChannelCommand = handleAddChannelCommand;

@@ -88,9 +88,9 @@ bot.help(async (ctx) => {
 });
 
 // --- Handlers ---
+registerPostHandler(bot);
 registerMeHandler(bot);
 registerChannelHandler(bot);
-registerPostHandler(bot);
 registerPlanHandler(bot);
 registerAdminHandler(bot);
 
