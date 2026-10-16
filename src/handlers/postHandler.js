@@ -4,6 +4,7 @@ const scheduleModel = require('../models/scheduleModel');
 const logModel = require('../models/logModel');
 const channelModel = require('../models/channelModel');
 const planService = require('../services/planService');
+const { parseButtonsJson, buildUrlKeyboard } = require('../utils/buttonBuilder');
 const { SCHEDULE_TYPES } = require('../config/constants');
 const { formatDate, WEEKDAYS } = require('../utils/dateHelpers');
 
@@ -484,7 +485,7 @@ module.exports = (bot) => {
         post.run_date = d.toISOString();
         post.hour = d.getHours();
         post.minute = d.getMinutes();
-        return askConfirm(ctx, post);
+        return await askConfirm(ctx, post);
       }
 
       // ============ PASO 6b: día de la semana ============
@@ -526,7 +527,7 @@ module.exports = (bot) => {
 
         post.hour = h;
         post.minute = min;
-        return askConfirm(ctx, post);
+        return await askConfirm(ctx, post);
       }
 
       // ============ CONFIRMACIÓN ============
@@ -669,7 +670,7 @@ async function showPostsList(ctx, edit = false) {
 /**
  * Pide confirmación al usuario antes de crear la publicación.
  */
-function askConfirm(ctx, post) {
+async function askConfirm(ctx, post) {
   ctx.session.step = STEPS.CONFIRM;
 
   const typeLabel = {
@@ -690,27 +691,90 @@ function askConfirm(ctx, post) {
     when = `Todos los días a las ${pad(post.hour)}:${pad(post.minute)}`;
   }
 
-  let extras = '';
-  if (post.media_type === 'photo') extras += '🖼 Con imagen\n';
-  if (post.buttons_json) {
-    try {
-      const rows = JSON.parse(post.buttons_json);
-      const total = rows.reduce((acc, r) => acc + r.length, 0);
-      extras += `🔘 ${total} botón(es)\n`;
-    } catch (_) {}
-  }
-  if (post.parse_mode) extras += `🎨 ${post.parse_mode}\n`;
+  // --- VISTA PREVIA ---
+  await ctx.reply('👁 *Vista previa de tu publicación:*', {
+    parse_mode: 'Markdown',
+  });
 
-  return ctx.reply(
-    `📋 *Resumen*\n\n` +
-      `📝 Contenido: ${escapeMd(truncate(post.content, 60))}\n` +
-      `🎯 Destinos: ${post.targets.length}\n` +
-      `🔁 Tipo: ${typeLabel}\n` +
-      `⏰ Cuándo: ${when}\n` +
-      (extras ? `\n${extras}` : '') +
-      `\n¿Confirmas? Responde *sí* o *no*.`,
-    { parse_mode: 'Markdown' }
-  );
+  const preview = await sendPreview(ctx, post);
+
+  if (!preview.ok) {
+      // El formato falló → mostrar error al usuario y pedir corrección
+      await ctx.reply(
+        `⚠️ *La vista previa falló*\n\n` +
+          `Error: \`${escapeMd(preview.error)}\`\n\n` +
+          `Esto significa que tu publicación NO se enviará a los canales con este formato.\n\n` +
+          `Opciones:\n` +
+          `• Escribe /cancel y crea una nueva publicación\n` +
+          `• Responde *sí* para guardarla de todas formas (fallará al publicar)\n` +
+          `• Responde *no* para cancelar`,
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    // Vista previa OK → pedir confirmación
+    await ctx.reply(
+      `✅ *Vista previa correcta*\n\n` +
+        `📋 *Resumen*\n` +
+        `🎯 Destinos: ${post.targets.length}\n` +
+        `🔁 Tipo: ${typeLabel}\n` +
+        `⏰ Cuándo: ${when}\n\n` +
+        `¿Confirmas la programación? Responde *sí* o *no*.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+/**
+ * Envía una vista previa de la publicación al chat del usuario.
+ * Devuelve true si se envió correctamente, false si hubo error de formato.
+ */
+async function sendPreview(ctx, post) {
+  const replyMarkup = post.buttons_json
+    ? parseButtonsJson(post.buttons_json)
+    : null;
+
+  const parseMode = post.parse_mode || null;
+
+  const options = {
+    ...(parseMode ? { parse_mode: parseMode } : {}),
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+  };
+
+  try {
+    if (post.media_type === 'photo' && post.media_file_id) {
+      await ctx.replyWithPhoto(post.media_file_id, {
+        caption: post.content,
+        ...options,
+      });
+    } else {
+      await ctx.reply(post.content, options);
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Convierte el JSON de botones en un reply_markup.
+ */
+function parseButtonsJson(json) {
+  try {
+    const rows = JSON.parse(json);
+    return {
+      inline_keyboard: rows.map((row) =>
+        row.map((btn) => ({
+          text: btn.text,
+          url: btn.url,
+          ...(btn.style ? { style: btn.style } : {}),
+        }))
+      ),
+    };
+  } catch (err) {
+    console.error('Error parseando botones:', err.message);
+    return null;
+  }
 }
 
 /**
