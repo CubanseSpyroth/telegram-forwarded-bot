@@ -4,7 +4,6 @@ const scheduleModel = require('../models/scheduleModel');
 const logModel = require('../models/logModel');
 const channelModel = require('../models/channelModel');
 const planService = require('../services/planService');
-const { parseButtonsJson, buildUrlKeyboard } = require('../utils/buttonBuilder');
 const { SCHEDULE_TYPES } = require('../config/constants');
 const { formatDate, WEEKDAYS } = require('../utils/dateHelpers');
 
@@ -757,22 +756,37 @@ async function sendPreview(ctx, post) {
 }
 
 /**
- * Convierte el JSON de botones en un reply_markup.
+ * Convierte el JSON de botones en un reply_markup válido para Telegraf.
+ * Formato JSON esperado:
+ *   [ [{ text, url, style? }, ...], ... ]  // filas de botones
  */
 function parseButtonsJson(json) {
+  if (!json) return null;
+
   try {
     const rows = JSON.parse(json);
+    if (!Array.isArray(rows)) return null;
+
     return {
       inline_keyboard: rows.map((row) =>
-        row.map((btn) => ({
-          text: btn.text,
-          url: btn.url,
-          ...(btn.style ? { style: btn.style } : {}),
-        }))
+        row.map((btn) => {
+          const out = {
+            text: btn.text,
+            url: btn.url,
+          };
+          // Solo añadimos style si existe y es válido
+          if (
+            btn.style &&
+            ['primary', 'success', 'danger'].includes(btn.style)
+          ) {
+            out.style = btn.style;
+          }
+          return out;
+        })
       ),
     };
   } catch (err) {
-    console.error('Error parseando botones:', err.message);
+    console.error('Error parseando buttons_json:', err.message);
     return null;
   }
 }
