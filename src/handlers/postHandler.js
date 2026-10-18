@@ -6,6 +6,7 @@ const channelModel = require('../models/channelModel');
 const planService = require('../services/planService');
 const { formatDate, WEEKDAYS, calculateNextRun } = require('../utils/dateHelpers');
 const { parseButtonsJson } = require('../utils/buttons');
+const { escapeMd } = require('../utils/stringHelpers');
 
 const {
   SCHEDULE_TYPES,
@@ -982,12 +983,11 @@ function stepMediaText() {
 function stepFormatText() {
   return (
     'Paso 3/6: Elige el *formato del texto*:\n\n' +
-    '1️⃣ HTML (recomendado)\n' +
-    '   `<b>negrita</b>`, `<i>cursiva</i>`, `<s>tachado</s>`\n' +
-    '   `<blockquote>cita</blockquote>`\n\n' +
-    '2️⃣ MarkdownV2 (avanzado)\n' +
-    '   Requiere escapar `_ * [ ] ( ) ~ ` > # + - = | { } . !`\n\n' +
-    '3️⃣ Sin formato'
+    '1️⃣ *HTML* (recomendado)\n' +
+    '   Ej: `<b>negrita</b>`, `<i>cursiva</i>`\n\n' +
+    '2️⃣ *MarkdownV2* (avanzado)\n' +
+    '   Requiere escapar caracteres especiales.\n\n' +
+    '3️⃣ *Sin formato* (texto plano)'
   );
 }
 
@@ -1282,13 +1282,4 @@ function truncate(str, n) {
 
 function pad(n) {
   return String(n).padStart(2, '0');
-}
-
-/**
- * Escapa caracteres reservados de Markdown legacy (parse_mode: 'Markdown').
- * Solo los 4 caracteres que realmente rompen el parseo:
- *   _  *  `  [
- */
-function escapeMd(str = '') {
-  return String(str).replace(/([_*`\[\]])/g, '\\$1');
 }

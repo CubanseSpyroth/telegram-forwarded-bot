@@ -3,6 +3,7 @@ const { adminOnly } = require('../middlewares/adminMiddleware');
 const adminService = require('../services/adminService');
 const userModel = require('../models/userModel');
 const { PLANS } = require('../config/constants');
+const { escapeMd } = require('../utils/stringHelpers');
 
 module.exports = (bot) => {
   // ============================================================
@@ -48,15 +49,16 @@ module.exports = (bot) => {
   // /users — Listar usuarios (paginado)
   // ============================================================
   bot.command('users', adminOnly, async (ctx) => {
-    const args = ctx.message.text.split(' ');
+    const args = ctx.message?.text?.split(' ') || [];
     const offset = parseInt(args[1], 10) || 0;
 
     const { users, total } = adminService.listUsers(offset, 10);
 
     const lines = users.map((u) => {
-      const name = u.first_name || '—';
-      const username = u.username ? `@${u.username}` : '—';
-      return `• \`${u.id}\` — ${name} (${username}) — ${u.plan}`;
+      const name = escapeMd(u.first_name || '—');
+      const username = u.username ? `@${escapeMd(u.username)}` : '—';
+      const plan = escapeMd(u.plan || 'free');
+      return `• \`${u.id}\` — ${name} (${username}) — ${plan}`;
     });
 
     const nav = [];
@@ -67,27 +69,30 @@ module.exports = (bot) => {
       nav.push({ text: 'Siguiente ➡️', callback_data: `admin:users:${offset + 10}` });
     }
 
-    const keyboard = nav.length ? [nav] : [];
-
     return ctx.reply(
       `👥 *Usuarios* (${offset + 1}-${Math.min(offset + 10, total)} de ${total})\n\n` +
         lines.join('\n'),
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard } }
+      {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: nav.length ? [nav] : [] },
+      }
     );
   });
 
   // Callback de paginación
   bot.action(/^admin:users:(\d+)$/, async (ctx) => {
-    if (!require('../config/env').ADMIN_IDS.includes(ctx.from.id)) {
+    if (!ADMIN_IDS.includes(ctx.from?.id)) {
       return ctx.answerCbQuery('❌ No autorizado');
     }
+
     const offset = parseInt(ctx.match[1], 10);
     const { users, total } = adminService.listUsers(offset, 10);
 
     const lines = users.map((u) => {
-      const name = u.first_name || '—';
-      const username = u.username ? `@${u.username}` : '—';
-      return `• \`${u.id}\` — ${name} (${username}) — ${u.plan}`;
+      const name = escapeMd(u.first_name || '—');
+      const username = u.username ? `@${escapeMd(u.username)}` : '—';
+      const plan = escapeMd(u.plan || 'free');
+      return `• \`${u.id}\` — ${name} (${username}) — ${plan}`;
     });
 
     const nav = [];
@@ -98,10 +103,14 @@ module.exports = (bot) => {
       nav.push({ text: 'Siguiente ➡️', callback_data: `admin:users:${offset + 10}` });
     }
 
-    await ctx.editMessageText(
+    await safeEdit(
+      ctx,
       `👥 *Usuarios* (${offset + 1}-${Math.min(offset + 10, total)} de ${total})\n\n` +
         lines.join('\n'),
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: nav.length ? [nav] : [] } }
+      {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: nav.length ? [nav] : [] },
+      }
     );
     await ctx.answerCbQuery();
   });
@@ -123,13 +132,13 @@ module.exports = (bot) => {
 
     return ctx.reply(
       `👤 *Usuario ${user.id}*\n\n` +
-        `Nombre: ${user.first_name || '—'}\n` +
-        `Username: ${user.username ? '@' + user.username : '—'}\n` +
-        `Plan: ${PLANS[user.plan]?.label || user.plan}\n` +
-        `Expira: ${user.plan_expires ? new Date(user.plan_expires).toLocaleDateString() : '—'}\n` +
-        `Registrado: ${new Date(user.created_at).toLocaleDateString()}\n\n` +
-        `📢 Canales: ${channels}\n` +
-        `📝 Publicaciones: ${schedules}`,
+      `Nombre: ${escapeMd(user.first_name || '—')}\n` +
+      `Username: ${user.username ? '@' + escapeMd(user.username) : '—'}\n` +
+      `Plan: ${escapeMd(user.plan)}\n` +
+      `Expira: ${user.plan_expires ? new Date(user.plan_expires).toLocaleDateString() : '—'}\n` +
+      `Registrado: ${new Date(user.created_at).toLocaleDateString()}\n\n` +
+      `📢 Canales: ${channels}\n` +
+      `📝 Publicaciones: ${schedules}`,
       { parse_mode: 'Markdown' }
     );
   });

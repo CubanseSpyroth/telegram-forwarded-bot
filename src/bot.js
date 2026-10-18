@@ -1,3 +1,4 @@
+// src/bot.js
 require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
@@ -7,22 +8,31 @@ const { runMigrations } = require('./database/migrations');
 
 const userMiddleware = require('./middlewares/userMiddleware');
 
+const registerPostHandler = require('./handlers/postHandler');
 const registerMeHandler = require('./handlers/meHandler');
 const registerChannelHandler = require('./handlers/channelHandler');
-const registerPostHandler = require('./handlers/postHandler');
 const registerPlanHandler = require('./handlers/planHandler');
 const registerAdminHandler = require('./handlers/adminHandler');
 
 const { startScheduler } = require('./scheduler');
 const { startCleanup } = require('./scheduler/cleanup');
-const { startChannelVerification } = require('./scheduler/verifyChannels');
+
+// ============================================================
+// INICIO
+// ============================================================
 
 console.log('🚀 Iniciando bot...');
 runMigrations();
 
+// ============================================================
+// BOT
+// ============================================================
+
 const bot = new Telegraf(BOT_TOKEN, { handlerTimeout: 30_000 });
 
-// --- Sesiones locales ---
+// ------------------------------------------------------------
+// 1. Sesiones
+// ------------------------------------------------------------
 const localSession = new LocalSession({ database: 'sessions.json' });
 bot.use(localSession.middleware());
 bot.use((ctx, next) => {
@@ -30,12 +40,17 @@ bot.use((ctx, next) => {
   return next();
 });
 
-// --- Middleware usuario ---
+// ------------------------------------------------------------
+// 2. Usuario (DEBE IR ANTES DE TODOS LOS HANDLERS)
+// ------------------------------------------------------------
 bot.use(userMiddleware());
 
-// --- /start ---
+// ============================================================
+// COMANDOS BASE
+// ============================================================
+
 bot.start(async (ctx) => {
-  const name = ctx.from.first_name || 'amigo';
+  const name = ctx.from?.first_name || 'amigo';
   return ctx.reply(
     `¡Hola ${name}! 👋\n\n` +
       `Soy tu bot programador de publicaciones.\n` +
@@ -55,18 +70,6 @@ bot.start(async (ctx) => {
   );
 });
 
-// Callback que ejecuta la lógica del comando
-bot.action('start:addchannel', async (ctx) => {
-  await ctx.answerCbQuery();
-  return channelHandler.handleAddChannelCommand(ctx);
-});
-
-bot.action('start:me', async (ctx) => {
-  await ctx.answerCbQuery();
-  return meHandler.handleMeCommand(ctx);
-});
-
-// --- /help ---
 bot.help(async (ctx) => {
   let text =
     `📖 *Comandos disponibles:*\n\n` +
@@ -80,23 +83,22 @@ bot.help(async (ctx) => {
     `/cancel - Cancelar operación\n` +
     `/help - Esta ayuda`;
 
-  if (ADMIN_IDS.includes(ctx.from.id)) {
+  if (ADMIN_IDS.includes(ctx.from?.id)) {
     text += `\n\n🛠 *Admin:*\n/admin - Panel de administración`;
   }
 
   return ctx.reply(text, { parse_mode: 'Markdown' });
 });
 
-// --- Handlers ---
 registerPostHandler(bot);
 registerMeHandler(bot);
 registerChannelHandler(bot);
 registerPlanHandler(bot);
 registerAdminHandler(bot);
 
-startScheduler(bot);
-startCleanup();
-startChannelVerification(bot);
+// ============================================================
+// MANEJO DE ERRORES
+// ============================================================
 
 bot.catch((err, ctx) => {
   console.error(`❌ Error en ${ctx.updateType}:`, err.message);
@@ -105,11 +107,16 @@ bot.catch((err, ctx) => {
 // ============================================================
 // LANZAR
 // ============================================================
-bot.launch()
+
+startScheduler(bot);
+startCleanup();
+
+bot
+  .launch()
   .then(() => {
     console.log('🤖 Bot listo y escuchando');
-    startScheduler(bot);
-    startCleanup();
+    // startScheduler(bot);
+    // startCleanup();
   })
   .catch((err) => {
     console.error('❌ Error al lanzar el bot:', err);
@@ -119,10 +126,12 @@ bot.launch()
 // ============================================================
 // APAGADO LIMPIO
 // ============================================================
+
 let isShuttingDown = false;
 const shutdown = (signal) => {
   if (isShuttingDown) return;
   isShuttingDown = true;
+
   console.log(`\n👋 Cerrando bot por ${signal}...`);
   try {
     if (bot.botInfo) bot.stop(signal);

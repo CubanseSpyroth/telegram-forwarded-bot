@@ -8,6 +8,7 @@ const { escapeMd } = require('../utils/stringHelpers');
 // ============================================================
 
 module.exports = (bot) => {
+  // ⚠️ Pasamos `bot` a cada registro que lo necesita
   registerCommands(bot);
   registerActions(bot);
   registerTextCapture(bot);
@@ -18,15 +19,15 @@ module.exports = (bot) => {
 // ============================================================
 
 function registerCommands(bot) {
-  bot.command('addchannel', handleAddChannelCommand);
+  bot.command('addchannel', (ctx) => handleAddChannelCommand(bot, ctx));
   bot.command('channels', (ctx) => showChannelsList(ctx));
 }
 
-async function handleAddChannelCommand(ctx) {
-  const text = ctx.message.text.replace('/addchannel', '').trim();
+async function handleAddChannelCommand(bot, ctx) {
+  const text = (ctx.message?.text || '').replace('/addchannel', '').trim();
 
   if (text) {
-    return handleAddChannel(ctx, text);
+    return handleAddChannel(bot, ctx, text);
   }
 
   ctx.session.awaiting = 'addchannel';
@@ -47,7 +48,7 @@ async function handleAddChannelCommand(ctx) {
 function registerActions(bot) {
   bot.action('start:addchannel', async (ctx) => {
     await ctx.answerCbQuery();
-    return handleAddChannelCommand(ctx);
+    return handleAddChannelCommand(bot, ctx);
   });
 
   bot.action(/^ch:view:(\d+)$/, onViewChannel);
@@ -164,7 +165,7 @@ function registerTextCapture(bot) {
     // Añadir canal
     if (ctx.session?.awaiting === 'addchannel') {
       ctx.session.awaiting = null;
-      return handleAddChannel(ctx, ctx.message.text.trim());
+      return handleAddChannel(bot, ctx, ctx.message.text.trim());
     }
 
     return next();
@@ -175,10 +176,10 @@ function registerTextCapture(bot) {
 // HANDLERS COMPARTIDOS
 // ============================================================
 
-async function handleAddChannel(ctx, rawInput) {
+async function handleAddChannel(bot, ctx, rawInput) {
   try {
     const channel = await channelService.addChannel(
-      ctx.bot,
+      bot,                    // ⬅️ aquí el bot real
       ctx.state.user,
       rawInput
     );
